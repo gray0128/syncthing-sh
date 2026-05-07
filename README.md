@@ -32,18 +32,18 @@ sudo bash install.sh install
 sudo bash install.sh uninstall
 ```
 
-## 计划中的远程安装方式
+## 远程安装方式
 
-将本仓库公开后，可直接：
+可直接：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/<your-username>/syncthing-sh/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/gray0128/syncthing-sh/main/install.sh)
 ```
 
 或：
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/<your-username>/syncthing-sh/main/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/gray0128/syncthing-sh/main/install.sh | bash
 ```
 
 ## 交互项说明
