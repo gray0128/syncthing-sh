@@ -289,7 +289,12 @@ configure_gui_auth() {
 enable_start_service() {
   local svc="$1"
   systemctl daemon-reload
-  systemctl enable --now "${svc}"
+  systemctl enable "${svc}" >/dev/null 2>&1 || true
+  if systemctl is-active --quiet "${svc}"; then
+    systemctl restart "${svc}"
+  else
+    systemctl start "${svc}"
+  fi
 }
 
 open_firewall_rule() {
@@ -411,6 +416,12 @@ EOF
   chmod 0600 "${META_FILE}"
 
   log "安装完成。服务状态："
+  log "当前生效 ExecStart："
+  systemctl show -p ExecStart "${SERVICE_RELAY}" | sed 's/^ExecStart=//'
+  systemctl show -p ExecStart "${SERVICE_DISCO}" | sed 's/^ExecStart=//'
+  if [[ "${enable_syncthing}" == "yes" ]]; then
+    systemctl show -p ExecStart "${SERVICE_SYNCTHING}" | sed 's/^ExecStart=//'
+  fi
   systemctl --no-pager --full status "${SERVICE_RELAY}" | sed -n '1,8p' || true
   systemctl --no-pager --full status "${SERVICE_DISCO}" | sed -n '1,8p' || true
   if [[ "${enable_syncthing}" == "yes" ]]; then
