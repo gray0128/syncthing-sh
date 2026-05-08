@@ -68,6 +68,7 @@ sudo bash install.sh install
 - relay/discovery 端口必须已监听
 
 校验失败会直接报错退出，避免“看似成功但配置未生效”。
+同时会打印当前监听端口和最近服务日志，便于快速定位问题。
 
 ## 防火墙端口
 

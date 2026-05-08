@@ -347,6 +347,23 @@ get_disco_device_id() {
   echo "${disco_id}"
 }
 
+is_tcp_port_listening() {
+  local port="$1"
+  ss -lnt | awk '{print $4}' | grep -qE "(^|.*:|\])${port}$"
+}
+
+print_service_debug_info() {
+  echo
+  warn "当前监听端口："
+  ss -lntp || true
+  echo
+  warn "最近的 relay 日志："
+  journalctl -u "${SERVICE_RELAY}" -n 40 --no-pager || true
+  echo
+  warn "最近的 discovery 日志："
+  journalctl -u "${SERVICE_DISCO}" -n 40 --no-pager || true
+}
+
 assert_service_configuration() {
   local relay_port="$1"
   local relay_status_port="$2"
@@ -367,8 +384,17 @@ assert_service_configuration() {
     [[ "${relay_exec}" == *"-token=${relay_token}"* ]] || die "强校验失败：relay token 未生效"
   fi
 
-  ss -lntp | grep -qE "[[:space:]]:${relay_port}[[:space:]]" || die "强校验失败：relay 端口 ${relay_port} 未监听"
-  ss -lntp | grep -qE "[[:space:]]:${disco_port}[[:space:]]" || die "强校验失败：discovery 端口 ${disco_port} 未监听"
+  local _try
+  for _try in 1 2 3 4 5; do
+    if is_tcp_port_listening "${relay_port}" && is_tcp_port_listening "${disco_port}"; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  print_service_debug_info
+  is_tcp_port_listening "${relay_port}" || die "强校验失败：relay 端口 ${relay_port} 未监听"
+  is_tcp_port_listening "${disco_port}" || die "强校验失败：discovery 端口 ${disco_port} 未监听"
 }
 
 print_client_config() {
