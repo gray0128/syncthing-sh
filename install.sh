@@ -314,6 +314,106 @@ open_firewall_rule() {
   fi
 }
 
+get_relay_device_id() {
+  local relay_keys_dir="$1"
+  local output relay_id
+  output="$(
+    timeout 4s "${BIN_DIR}/strelaysrv" \
+      -keys="${relay_keys_dir}" \
+      -listen=127.0.0.1:0 \
+      -status-srv= \
+      -pools= 2>&1 || true
+  )"
+  relay_id="$(printf '%s\n' "${output}" | sed -n 's/.*[?&]id=\([A-Z0-9-]\+\).*/\1/p' | head -n 1)"
+  [[ -n "${relay_id}" ]] || return 1
+  echo "${relay_id}"
+}
+
+get_disco_device_id() {
+  local cert_file="$1"
+  local key_file="$2"
+  local db_dir="$3"
+  local output disco_id
+  mkdir -p "${db_dir}"
+  output="$(
+    timeout 4s "${BIN_DIR}/stdiscosrv" \
+      --cert="${cert_file}" \
+      --key="${key_file}" \
+      --db-dir="${db_dir}" \
+      --listen=127.0.0.1:0 2>&1 || true
+  )"
+  disco_id="$(printf '%s\n' "${output}" | sed -n 's/.*deviceId=\([A-Z0-9-]\+\).*/\1/p' | head -n 1)"
+  [[ -n "${disco_id}" ]] || return 1
+  echo "${disco_id}"
+}
+
+assert_service_configuration() {
+  local relay_port="$1"
+  local relay_status_port="$2"
+  local relay_token="$3"
+  local disco_port="$4"
+
+  systemctl is-active --quiet "${SERVICE_RELAY}" || die "${SERVICE_RELAY} 未运行"
+  systemctl is-active --quiet "${SERVICE_DISCO}" || die "${SERVICE_DISCO} 未运行"
+
+  local relay_exec disco_exec
+  relay_exec="$(systemctl show -p ExecStart "${SERVICE_RELAY}" | sed 's/^ExecStart=//')"
+  disco_exec="$(systemctl show -p ExecStart "${SERVICE_DISCO}" | sed 's/^ExecStart=//')"
+
+  [[ "${relay_exec}" == *"-listen=:${relay_port}"* ]] || die "强校验失败：relay 监听端口未生效（期望 ${relay_port}）"
+  [[ "${relay_exec}" == *"-status-srv=:${relay_status_port}"* ]] || die "强校验失败：relay 状态端口未生效（期望 ${relay_status_port}）"
+  [[ "${disco_exec}" == *"--listen=:${disco_port}"* ]] || die "强校验失败：discovery 端口未生效（期望 ${disco_port}）"
+  if [[ -n "${relay_token}" ]]; then
+    [[ "${relay_exec}" == *"-token=${relay_token}"* ]] || die "强校验失败：relay token 未生效"
+  fi
+
+  ss -lntp | grep -qE "[[:space:]]:${relay_port}[[:space:]]" || die "强校验失败：relay 端口 ${relay_port} 未监听"
+  ss -lntp | grep -qE "[[:space:]]:${disco_port}[[:space:]]" || die "强校验失败：discovery 端口 ${disco_port} 未监听"
+}
+
+print_client_config() {
+  [[ -f "${META_FILE}" ]] || die "未找到安装元数据，请先执行 install"
+  # shellcheck disable=SC1090
+  source "${META_FILE}"
+
+  local relay_port="${RELAY_PORT:-}"
+  local disco_port="${DISCO_PORT:-}"
+  local relay_token="${RELAY_TOKEN:-}"
+  local public_host="${PUBLIC_HOST:-}"
+  local include_default="${INCLUDE_DEFAULT_DISCOVERY:-yes}"
+
+  [[ -n "${relay_port}" && -n "${disco_port}" ]] || die "元数据不完整（缺少端口信息）"
+  [[ -n "${public_host}" ]] || public_host="<your-domain>"
+
+  local relay_id disco_id
+  relay_id="$(get_relay_device_id "${BASE_DIR}/relay/keys" || true)"
+  disco_id="$(get_disco_device_id "${BASE_DIR}/discovery/cert.pem" "${BASE_DIR}/discovery/key.pem" "${BASE_DIR}/discovery/db" || true)"
+  [[ -n "${relay_id}" ]] || die "无法获取 relay device ID，请检查 ${SERVICE_RELAY} 与 keys 目录"
+  [[ -n "${disco_id}" ]] || die "无法获取 discovery device ID，请检查 ${SERVICE_DISCO} 与证书目录"
+
+  local relay_url="relay://${public_host}:${relay_port}/?id=${relay_id}"
+  if [[ -n "${relay_token}" ]]; then
+    relay_url="${relay_url}&token=${relay_token}"
+  fi
+  local listen_addrs="tcp://0.0.0.0:22000,quic://0.0.0.0:22000,${relay_url}"
+  local discovery_url="https://${public_host}:${disco_port}/?id=${disco_id}"
+  local discovery_line="${discovery_url}"
+  if [[ "${include_default}" == "yes" ]]; then
+    discovery_line="default, ${discovery_url}"
+  fi
+
+  cat <<EOF
+
+================= 客户端配置（自签名证书） =================
+同步协议监听地址:
+${listen_addrs}
+
+全局发现服务器:
+${discovery_line}
+============================================================
+EOF
+}
+
 install_flow() {
   check_ubuntu_version
   ensure_dependencies
@@ -357,6 +457,10 @@ install_flow() {
 
   local source_cidr
   source_cidr="$(prompt_default "防火墙允许来源 CIDR（any 表示全网）" "any")"
+  local public_host
+  public_host="$(prompt_default "客户端访问本服务使用的公网域名（或IP）" "arm1-osaka.bobocai.win")"
+  local include_default_discovery
+  include_default_discovery="$(prompt_yes_no "全局发现服务器是否保留 default?" "Y")"
 
   local syncthing_tag relaysrv_tag discosrv_tag
   syncthing_tag="$(github_latest_tag "syncthing/syncthing")"
@@ -408,10 +512,18 @@ install_flow() {
     fi
   fi
 
+  assert_service_configuration "${relay_port}" "${relay_status_port}" "${relay_token}" "${disco_port}"
+
   cat >"${META_FILE}" <<EOF
 RUN_USER=${run_user}
 RUN_HOME=${run_home}
 ENABLE_SYNCTHING=${enable_syncthing}
+RELAY_PORT=${relay_port}
+RELAY_STATUS_PORT=${relay_status_port}
+DISCO_PORT=${disco_port}
+RELAY_TOKEN=${relay_token}
+PUBLIC_HOST=${public_host}
+INCLUDE_DEFAULT_DISCOVERY=${include_default_discovery}
 EOF
   chmod 0600 "${META_FILE}"
 
@@ -459,6 +571,8 @@ EOF
   sudo bash install.sh uninstall
 ========================================================
 EOF
+
+  print_client_config
 }
 
 disable_stop_if_exists() {
@@ -524,23 +638,39 @@ main() {
   local mode="${1:-}"
 
   if [[ -z "${mode}" ]]; then
-    mode="$(prompt_default "请选择模式 (install / uninstall)" "install")"
+    cat <<'EOF'
+请选择操作:
+  1) install 安装/更新
+  2) uninstall 卸载
+  3) show-client-config 打印客户端配置
+EOF
+    local pick
+    pick="$(prompt_default "请输入序号" "1")"
+    case "${pick}" in
+      1) mode="install" ;;
+      2) mode="uninstall" ;;
+      3) mode="show-client-config" ;;
+      *) die "无效序号: ${pick}" ;;
+    esac
   fi
 
   case "${mode}" in
     install) install_flow ;;
     uninstall) uninstall_flow ;;
+    show-client-config) print_client_config ;;
     -h|--help|help)
       cat <<EOF
 用法:
   sudo bash ${SCRIPT_NAME} install
   sudo bash ${SCRIPT_NAME} uninstall
+  sudo bash ${SCRIPT_NAME} show-client-config
 
 说明:
   - 适配 Ubuntu 20.04+
   - 适配 amd64 / arm64
   - 默认部署 strelaysrv + stdiscosrv
   - 可选部署 syncthing（含 GUI 认证）
+  - install 结束后执行强校验
 EOF
       ;;
     *)

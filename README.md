@@ -34,6 +34,12 @@ curl -fsSL https://raw.githubusercontent.com/gray0128/syncthing-sh/main/install.
 curl -fsSL https://raw.githubusercontent.com/gray0128/syncthing-sh/main/install.sh | sudo bash -s -- uninstall
 ```
 
+### 在线查看客户端配置（完整监听地址 + 全局发现）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gray0128/syncthing-sh/main/install.sh | sudo bash -s -- show-client-config
+```
+
 ### 下载后执行（最稳妥）
 
 ```bash
@@ -51,6 +57,17 @@ sudo bash install.sh install
 - 中继 Token：默认自动生成并启用；输入 `none` 可禁用
 - 是否部署 syncthing 核心服务：默认 `N`
 - 防火墙来源 CIDR：默认 `any`
+- 客户端访问域名（或IP）：用于生成客户端配置串
+- 全局发现是否保留 `default`：用于生成客户端配置串
+
+## 强校验
+
+`install` 结束后会强校验：
+- relay/discovery 服务必须处于运行状态
+- 实际生效 `ExecStart` 必须匹配交互输入的端口和 token
+- relay/discovery 端口必须已监听
+
+校验失败会直接报错退出，避免“看似成功但配置未生效”。
 
 ## 防火墙端口
 
