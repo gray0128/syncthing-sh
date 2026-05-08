@@ -20,30 +20,23 @@ Ubuntu 20.04+ 一键部署 Syncthing 服务端脚本（`amd64` / `arm64`）。
 
 ## 快速开始
 
-### 本地运行
+### 在线安装（推荐）
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/gray0128/syncthing-sh/main/install.sh | sudo bash -s -- install
+```
+
+### 在线卸载
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gray0128/syncthing-sh/main/install.sh | sudo bash -s -- uninstall
+```
+
+### 下载后执行（最稳妥）
+
+```bash
+curl -fsSLo install.sh https://raw.githubusercontent.com/gray0128/syncthing-sh/main/install.sh
 sudo bash install.sh install
-```
-
-### 交互卸载
-
-```bash
-sudo bash install.sh uninstall
-```
-
-## 远程安装方式
-
-可直接：
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/gray0128/syncthing-sh/main/install.sh)
-```
-
-或：
-
-```bash
-wget -qO- https://raw.githubusercontent.com/gray0128/syncthing-sh/main/install.sh | bash
 ```
 
 ## 交互项说明

@@ -32,7 +32,7 @@ die() {
 
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
-    die "请使用 root 运行（例如：sudo bash ${SCRIPT_NAME}）"
+    die "请使用 root 运行（例如：curl -fsSL <URL> | sudo bash -s -- install，或先下载后 sudo bash install.sh）"
   fi
 }
 
