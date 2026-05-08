@@ -26,6 +26,8 @@ Ubuntu 20.04+ 一键部署 Syncthing 服务端脚本（`amd64` / `arm64`）。
 curl -fsSL https://raw.githubusercontent.com/gray0128/syncthing-sh/main/install.sh | sudo bash -s -- install
 ```
 
+> 注意：URL 不要加反引号 `` `...` ``。
+
 ### 在线卸载
 
 ```bash
@@ -46,7 +48,7 @@ sudo bash install.sh install
 - 中继状态端口：默认 `22070`
 - 发现服务端口：默认 `8443`
 - Syncthing GUI 监听：默认 `0.0.0.0:8384`（仅在启用核心服务时生效）
-- 中继 Token：可选，建议启用
+- 中继 Token：默认自动生成并启用；输入 `none` 可禁用
 - 是否部署 syncthing 核心服务：默认 `N`
 - 防火墙来源 CIDR：默认 `any`
 

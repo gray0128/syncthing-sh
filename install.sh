@@ -79,7 +79,7 @@ prompt_default() {
   local prompt="$1"
   local default="$2"
   local input
-  read -r -p "${prompt} [默认: ${default}]: " input || true
+  read -r -p "${prompt} [默认: ${default}]: " input < "$(stdin_for_prompt)" || true
   if [[ -z "${input}" ]]; then
     echo "${default}"
   else
@@ -99,7 +99,7 @@ prompt_yes_no() {
   fi
 
   while true; do
-    read -r -p "${prompt} [${default_hint}]: " input || true
+    read -r -p "${prompt} [${default_hint}]: " input < "$(stdin_for_prompt)" || true
     input="${input:-$default}"
     case "${input}" in
       Y|y|yes|YES) echo "yes"; return 0 ;;
@@ -113,6 +113,14 @@ random_password() {
   local raw
   raw="$(tr -d '-' </proc/sys/kernel/random/uuid)$(tr -d '-' </proc/sys/kernel/random/uuid)"
   echo "${raw:0:20}"
+}
+
+stdin_for_prompt() {
+  if [[ -r /dev/tty ]]; then
+    echo "/dev/tty"
+  else
+    echo "/dev/stdin"
+  fi
 }
 
 github_latest_tag() {
@@ -132,7 +140,7 @@ download_and_install_binary() {
   local url="https://github.com/${repo}/releases/download/${version}/${tarball}"
   local tmpdir
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "${tmpdir}"' RETURN
+  trap 'rm -rf "${tmpdir:-}"' RETURN
 
   log "下载 ${binary}: ${url}"
   curl -fL "${url}" -o "${tmpdir}/${tarball}"
@@ -144,6 +152,8 @@ download_and_install_binary() {
 
   install -m 0755 "${src_bin}" "${BIN_DIR}/${binary}"
   log "已安装 ${binary} -> ${BIN_DIR}/${binary}"
+  rm -rf "${tmpdir}"
+  trap - RETURN
 }
 
 create_systemd_unit_relay() {
@@ -154,9 +164,9 @@ create_systemd_unit_relay() {
   local status_port="$5"
   local relay_token="$6"
 
-  local extra_args="-pools=\"\""
+  local extra_args="-pools="
   if [[ -n "${relay_token}" ]]; then
-    extra_args="-token=\"${relay_token}\""
+    extra_args="-token=${relay_token}"
   fi
 
   cat >"${SYSTEMD_DIR}/${SERVICE_RELAY}" <<EOF
@@ -309,6 +319,9 @@ install_flow() {
   local arch
   arch="$(detect_arch)"
   log "检测到架构: ${arch}"
+  if [[ ! -r /dev/tty ]]; then
+    warn "未检测到可交互终端，将使用默认值执行安装。"
+  fi
 
   local default_user="${SUDO_USER:-$(id -un)}"
   local run_user
@@ -326,8 +339,13 @@ install_flow() {
   disco_port="$(prompt_default "发现服务端口 (stdiscosrv --listen)" "${DEFAULT_DISCO_PORT}")"
   gui_addr="$(prompt_default "Syncthing GUI 监听地址" "${DEFAULT_GUI_ADDR}")"
 
-  local relay_token
-  read -r -p "中继访问 Token（留空表示不启用）: " relay_token || true
+  local relay_token_default relay_token
+  relay_token_default="$(random_password)"
+  relay_token="$(prompt_default "中继访问 Token（默认自动生成；输入 none 可禁用）" "${relay_token_default}")"
+  if [[ "${relay_token}" == "none" ]]; then
+    relay_token=""
+  fi
+  [[ "${relay_token}" =~ [[:space:]] ]] && die "Token 不能包含空白字符"
 
   local enable_syncthing
   enable_syncthing="$(prompt_yes_no "是否部署 syncthing 核心服务（含 GUI）?" "N")"
@@ -342,7 +360,7 @@ install_flow() {
 
   log "版本将使用: syncthing=${syncthing_tag}, relaysrv=${relaysrv_tag}, discosrv=${discosrv_tag}"
 
-  mkdir -p "${BASE_DIR}/relay" "${BASE_DIR}/discovery"
+  mkdir -p "${BASE_DIR}/relay/keys" "${BASE_DIR}/discovery/db"
   chown -R "${run_user}:${run_group}" "${BASE_DIR}"
 
   download_and_install_binary "syncthing/relaysrv" "strelaysrv" "${arch}" "${relaysrv_tag}"
@@ -368,7 +386,7 @@ install_flow() {
     download_and_install_binary "syncthing/syncthing" "syncthing" "${arch}" "${syncthing_tag}"
 
     gui_user="$(prompt_default "GUI 管理员用户名" "admin")"
-    read -r -s -p "GUI 管理员密码（留空自动生成）: " gui_password || true
+    read -r -s -p "GUI 管理员密码（留空自动生成）: " gui_password < "$(stdin_for_prompt)" || true
     echo
     if [[ -z "${gui_password}" ]]; then
       gui_password="$(random_password)"
